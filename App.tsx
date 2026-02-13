@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { User, Menu, DietaryProfile, MenuItem, Rating, MealAttendance, Request, Notification, WasteConfig, WasteLog } from './types';
 import { MOCK_USER, ADMIN_USER, GALLEY_USER, OFFICER_USER, TODAY_MENUS } from './constants';
 import Onboarding from './components/Onboarding';
@@ -13,6 +13,35 @@ import Login from './components/Login';
 import ChangePassword from './components/ChangePassword';
 import { analyzeMenuImage, analyzeCrewRoster } from './services/geminiService';
 import { Settings, ShieldAlert, Check, Calendar as CalendarIcon, Loader2 } from 'lucide-react';
+import {
+  signInWithPassport,
+  signOut as apiSignOut,
+  getCurrentUser,
+  listCrew,
+  getMenus,
+  getRatingsForUser,
+  getAttendance,
+  getRequests,
+  getNotificationsForUser,
+  getWasteConfig,
+  getWasteLogs,
+  updateProfile,
+  createRequest,
+  updateRequestStatus,
+  submitRating,
+  setAttendance,
+  removeAttendance,
+  addNotification as addNotificationApi,
+  markNotificationRead,
+  clearNotificationsForUser,
+  updateWasteConfig,
+  logWaste as apiLogWaste,
+  upsertMenu,
+  createProfile,
+} from './lib/api';
+import { supabase } from './lib/supabase';
+
+const isSupabase = !!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY);
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -73,6 +102,41 @@ const App: React.FC = () => {
   // Calendar State
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
 
+  // Restore Supabase session on load
+  useEffect(() => {
+    if (!isSupabase) return;
+    getCurrentUser().then((u) => {
+      if (u) setUser(u);
+    });
+  }, []);
+
+  // Load data from Supabase when user is set
+  const loadSupabaseData = useCallback(async () => {
+    if (!user || !isSupabase) return;
+    const [menusData, crewData, ratingsData, attendanceData, requestsData, notifsData, wasteCfg, wasteLogsData] = await Promise.all([
+      getMenus(),
+      listCrew(),
+      getRatingsForUser(user.user_id),
+      getAttendance(),
+      getRequests(),
+      getNotificationsForUser(user.user_id),
+      getWasteConfig(),
+      getWasteLogs(),
+    ]);
+    setMenus(menusData.length ? menusData : TODAY_MENUS);
+    setCrewList(crewData.length ? crewData : [MOCK_USER, OFFICER_USER]);
+    setUserRatings(ratingsData);
+    setMealAttendance(attendanceData);
+    setRequests(requestsData);
+    setNotifications(notifsData);
+    if (wasteCfg) setWasteConfig(wasteCfg);
+    setWasteLogs(wasteLogsData);
+  }, [user?.user_id]);
+
+  useEffect(() => {
+    if (user && isSupabase) loadSupabaseData();
+  }, [user?.user_id, isSupabase]);
+
   // Alert Logic: Check for conflicts whenever user or menus change
   useEffect(() => {
     if (user && viewState === 'app' && user.onboarding_completed && user.role === 'crew') {
@@ -91,71 +155,97 @@ const App: React.FC = () => {
   }, [user, menus, viewState]);
 
   // Handle Crew Authentication
-  const handleCrewLogin = (passport: string, password: string) => {
+  const handleCrewLogin = async (passport: string, password: string) => {
+      if (isSupabase) {
+        const { user: supabaseUser, error } = await signInWithPassport(passport, password);
+        if (error) {
+          setLoginError(error);
+          return;
+        }
+        setUser(supabaseUser);
+        setShowLogin(false);
+        setLoginError('');
+        if (!supabaseUser.password_changed) setViewState('change_password');
+        else if (!supabaseUser.onboarding_completed) setViewState('onboarding');
+        else { setViewState('app'); setTab('home'); }
+        return;
+      }
+
       const foundUser = crewList.find(u => u.user_id.toLowerCase() === passport.toLowerCase());
-      
       if (!foundUser) {
           setLoginError('Passport number not found.');
           return;
       }
-      
       if (foundUser.password !== password) {
           setLoginError('Invalid password.');
           return;
       }
-
-      // Login Successful
       setUser(foundUser);
       setShowLogin(false);
       setLoginError('');
-
-      // Determine next flow
-      if (!foundUser.password_changed) {
-          setViewState('change_password');
-      } else if (!foundUser.onboarding_completed) {
-          setViewState('onboarding');
-      } else {
-          setViewState('app');
-          setTab('home');
-      }
+      if (!foundUser.password_changed) setViewState('change_password');
+      else if (!foundUser.onboarding_completed) setViewState('onboarding');
+      else { setViewState('app'); setTab('home'); }
   };
 
-  const handlePasswordChange = (newPassword: string) => {
-      if (user) {
-          const updatedUser = { ...user, password: newPassword, password_changed: true };
-          setUser(updatedUser);
-          setCrewList(prev => prev.map(u => u.user_id === user.user_id ? updatedUser : u));
-          
-          if (!updatedUser.onboarding_completed) {
-              setViewState('onboarding');
-          } else {
-              setViewState('app');
-          }
+  const handlePasswordChange = async (newPassword: string) => {
+      if (!user) return;
+      if (isSupabase) {
+        const { error } = await supabase.auth.updateUser({ password: newPassword });
+        if (error) {
+          alert('Failed to update password: ' + error.message);
+          return;
+        }
+        const updated = await updateProfile(user.user_id, { password_changed: true });
+        if (updated) setUser(updated);
+        setViewState(updated?.onboarding_completed ? 'app' : 'onboarding');
+        return;
       }
+      const updatedUser = { ...user, password: newPassword, password_changed: true };
+      setUser(updatedUser);
+      setCrewList(prev => prev.map(u => u.user_id === user.user_id ? updatedUser : u));
+      setViewState(updatedUser.onboarding_completed ? 'app' : 'onboarding');
   };
 
-  // Mock quick login for others
-  const handleRoleLogin = (role: 'admin' | 'galley' | 'officer') => {
-    let baseUser;
-    if (role === 'admin') baseUser = ADMIN_USER;
-    else if (role === 'galley') baseUser = GALLEY_USER;
-    else baseUser = OFFICER_USER;
-
+  // Quick login for officer / galley / admin (uses shared account password e.g. 'admin')
+  const handleRoleLogin = async (role: 'admin' | 'galley' | 'officer') => {
+    const roleUserId = role === 'admin' ? 'u_admin' : role === 'galley' ? 'u_galley' : 'u_officer';
+    const password = 'admin';
+    if (isSupabase) {
+      const { user: supabaseUser, error } = await signInWithPassport(roleUserId, password);
+      if (error) {
+        setLoginError(error);
+        setShowLogin(false);
+        return;
+      }
+      setUser(supabaseUser);
+      setViewState('app');
+      setTab('home');
+      return;
+    }
+    const baseUser = role === 'admin' ? ADMIN_USER : role === 'galley' ? GALLEY_USER : OFFICER_USER;
     setUser(baseUser);
     setViewState('app');
     setTab('home');
   };
 
-  const completeOnboarding = (profile: DietaryProfile) => {
-    if (user) {
-      const updatedUser = { ...user, onboarding_completed: true, dietary_profile: profile };
-      setUser(updatedUser);
-      setCrewList(prev => prev.map(u => u.user_id === updatedUser.user_id ? updatedUser : u));
-      setViewState('app');
+  const completeOnboarding = async (profile: DietaryProfile) => {
+    if (!user) return;
+    if (isSupabase) {
+      const updated = await updateProfile(user.user_id, { onboarding_completed: true, dietary_profile: profile });
+      if (updated) {
+        setUser(updated);
+        setViewState('app');
+      }
+      return;
     }
+    const updatedUser = { ...user, onboarding_completed: true, dietary_profile: profile };
+    setUser(updatedUser);
+    setCrewList(prev => prev.map(u => u.user_id === updatedUser.user_id ? updatedUser : u));
+    setViewState('app');
   };
 
-  const addNotification = (title: string, message: string, type: 'info' | 'alert' | 'success' = 'info') => {
+  const addNotification = async (title: string, message: string, type: 'info' | 'alert' | 'success' = 'info') => {
     const newNotif: Notification = {
       id: `notif_${Date.now()}`,
       title,
@@ -164,12 +254,16 @@ const App: React.FC = () => {
       read: false,
       type
     };
+    if (isSupabase && user) {
+      const saved = await addNotificationApi(user.user_id, title, message, type);
+      if (saved) setNotifications((prev) => [saved, ...prev]);
+      return;
+    }
     setNotifications(prev => [newNotif, ...prev]);
   };
 
-  const handleSubstitute = (original: MenuItem, sub: MenuItem) => {
+  const handleSubstitute = async (original: MenuItem, sub: MenuItem) => {
      if (!user || !alertMenu) return;
-     
      const newReq: Request = {
         request_id: `req_${Date.now()}`,
         user_id: user.user_id,
@@ -179,35 +273,35 @@ const App: React.FC = () => {
         detail: `Dietary Conflict: Swap ${original.name} for ${sub.name}`,
         timestamp: new Date().toISOString()
      };
-     
-     setRequests(prev => [...prev, newReq]);
+     if (isSupabase) {
+       const saved = await createRequest(newReq);
+       if (saved) setRequests((prev) => [...prev, saved]);
+     } else setRequests(prev => [...prev, newReq]);
      setShowDietaryAlert(false);
      alert(`Substitution request sent to Galley: ${original.name} -> ${sub.name}`);
   };
 
-  const handleRequestAction = (requestId: string, status: 'approved' | 'denied') => {
-    setRequests(prev => prev.map(r => r.request_id === requestId ? { ...r, status } : r));
-    
-    // Notify the user who made the request (Simulated since we don't have real-time sockets)
+  const handleRequestAction = async (requestId: string, status: 'approved' | 'denied') => {
+    if (isSupabase) {
+      const updated = await updateRequestStatus(requestId, status);
+      if (updated) setRequests((prev) => prev.map((r) => (r.request_id === requestId ? updated : r)));
+    } else setRequests(prev => prev.map(r => r.request_id === requestId ? { ...r, status } : r));
     const req = requests.find(r => r.request_id === requestId);
-    if (req) {
-        addNotification(
-            'Request Update', 
-            `Your substitution request has been ${status}.`, 
-            status === 'approved' ? 'success' : 'alert'
-        );
-    }
+    if (req) addNotification('Request Update', `Your substitution request has been ${status}.`, status === 'approved' ? 'success' : 'alert');
   };
 
   const handleRate = (item: MenuItem, menuId: string) => {
     setRatingModalData({ item, menuId });
   };
 
-  const handleSubmitRating = (ratingData: Omit<Rating, 'rating_id'>) => {
-    const newRating: Rating = {
-      ...ratingData,
-      rating_id: Math.random().toString(36).substr(2, 9)
-    };
+  const handleSubmitRating = async (ratingData: Omit<Rating, 'rating_id'>) => {
+    if (isSupabase && user) {
+      const saved = await submitRating({ ...ratingData, user_id: user.user_id });
+      if (saved) setUserRatings((prev) => [...prev, saved]);
+      setRatingModalData(null);
+      return;
+    }
+    const newRating: Rating = { ...ratingData, rating_id: Math.random().toString(36).substr(2, 9) };
     setUserRatings(prev => [...prev, newRating]);
     setRatingModalData(null);
   };
@@ -220,56 +314,82 @@ const App: React.FC = () => {
       );
   };
 
-  const handleToggleLatePlate = (menuId: string) => {
+  const handleToggleLatePlate = async (menuId: string) => {
       if (!user) return;
+      if (isSupabase) {
+        const existing = mealAttendance.find((a) => a.menu_id === menuId && a.user_id === user.user_id);
+        if (existing?.status === 'late_plate') {
+          await removeAttendance(menuId, user.user_id);
+          setMealAttendance((prev) => prev.filter((a) => !(a.menu_id === menuId && a.user_id === user.user_id)));
+        } else {
+          const saved = await setAttendance(menuId, user.user_id, 'late_plate');
+          if (saved) setMealAttendance((prev) => prev.filter((a) => !(a.menu_id === menuId && a.user_id === user.user_id)).concat([saved]));
+        }
+        return;
+      }
       setMealAttendance(prev => {
           const existing = prev.find(a => a.menu_id === menuId && a.user_id === user.user_id);
           if (existing) {
-              if (existing.status === 'late_plate') {
-                  // If unchecking late plate, return to standard (remove attendance record or set to standard)
-                  // If it was skipped, switching to late plate overrides it
-                  return prev.filter(a => a !== existing); 
-              }
-              // Switch to late plate
+              if (existing.status === 'late_plate') return prev.filter(a => a !== existing);
               return prev.map(a => a === existing ? { ...a, status: 'late_plate' as const } : a);
           }
           return [...prev, { menu_id: menuId, user_id: user.user_id, status: 'late_plate' }];
       });
   };
 
-  const handleSkipMeal = (menuId: string) => {
+  const handleSkipMeal = async (menuId: string) => {
       if (!user) return;
+      if (isSupabase) {
+        const existing = mealAttendance.find((a) => a.menu_id === menuId && a.user_id === user.user_id);
+        const newStatus = existing?.status === 'skipped' ? null : 'skipped';
+        if (newStatus === null) {
+          await removeAttendance(menuId, user.user_id);
+          setMealAttendance((prev) => prev.filter((a) => !(a.menu_id === menuId && a.user_id === user.user_id)));
+        } else {
+          const saved = await setAttendance(menuId, user.user_id, 'skipped');
+          if (saved) setMealAttendance((prev) => prev.filter((a) => !(a.menu_id === menuId && a.user_id === user.user_id)).concat([saved]));
+        }
+        return;
+      }
       setMealAttendance(prev => {
           const existing = prev.find(a => a.menu_id === menuId && a.user_id === user.user_id);
           if (existing) {
-              if (existing.status === 'skipped') {
-                  // Undo skip
-                  return prev.filter(a => a !== existing);
-              }
+              if (existing.status === 'skipped') return prev.filter(a => a !== existing);
               return prev.map(a => a === existing ? { ...a, status: 'skipped' as const } : a);
           }
           return [...prev, { menu_id: menuId, user_id: user.user_id, status: 'skipped' }];
       });
   };
 
-  const handleMarkServed = (menuId: string, userId: string) => {
+  const handleMarkServed = async (menuId: string, userId: string) => {
+      if (isSupabase) {
+        const saved = await setAttendance(menuId, userId, 'served');
+        if (saved) setMealAttendance((prev) => prev.filter((a) => !(a.menu_id === menuId && a.user_id === userId)).concat([saved]));
+        return;
+      }
       setMealAttendance(prev => {
           const existing = prev.find(a => a.menu_id === menuId && a.user_id === userId);
-          if (existing) {
-              return prev.map(a => a === existing ? { ...a, status: 'served' as const } : a);
-          }
+          if (existing) return prev.map(a => a === existing ? { ...a, status: 'served' as const } : a);
           return [...prev, { menu_id: menuId, user_id: userId, status: 'served' }];
       });
   };
 
   // Waste Management Handlers
-  const handleUpdateWasteConfig = (newConfig: WasteConfig) => {
-      setWasteConfig(newConfig);
+  const handleUpdateWasteConfig = async (newConfig: WasteConfig) => {
+      if (isSupabase) {
+        const updated = await updateWasteConfig(newConfig);
+        if (updated) setWasteConfig(updated);
+      } else setWasteConfig(newConfig);
   };
 
-  const handleLogWaste = (count: number) => {
+  const handleLogWaste = async (count: number) => {
       if (!user) return;
-      
+      if (isSupabase) {
+        const saved = await apiLogWaste(user.user_id, count, wasteConfig);
+        if (saved) setWasteLogs((prev) => [...prev, saved]);
+        addNotification('Waste Logged', `${count} containers recorded.`, 'success');
+        return;
+      }
       const newLog: WasteLog = {
           log_id: `wl_${Date.now()}`,
           date: new Date().toISOString(),
@@ -278,7 +398,6 @@ const App: React.FC = () => {
           total_volume_m3: count * wasteConfig.container_volume_m3,
           logged_by: user.user_id
       };
-      
       setWasteLogs(prev => [...prev, newLog]);
       addNotification("Waste Logged", `${count} containers recorded.`, 'success');
   };
@@ -306,7 +425,7 @@ const App: React.FC = () => {
                         image_url: `https://picsum.photos/100/100?random=${Date.now() + idx}` 
                     }))
                 };
-                
+                if (isSupabase) await upsertMenu(newMenu);
                 setMenus(prev => [...prev, newMenu]);
                 addNotification(
                     'New Menu Added', 
@@ -339,7 +458,7 @@ const App: React.FC = () => {
 
             if(result && result.crew_members && Array.isArray(result.crew_members)) {
                 const newUsers: User[] = result.crew_members.map((m: any) => ({
-                    user_id: m.crew_id || `U${Math.floor(100000 + Math.random() * 900000)}`, // Generate Passport-like ID if missing
+                    user_id: m.crew_id || `U${Math.floor(100000 + Math.random() * 900000)}`,
                     password: '123456',
                     password_changed: false,
                     name: m.name,
@@ -348,18 +467,26 @@ const App: React.FC = () => {
                     onboarding_completed: false,
                     dietary_profile: {
                         food_allergies: [],
-                        religious_restrictions: {
-                            religion: 'none',
-                            avoid_items: [],
-                            requires_halal: false,
-                            requires_kosher: false,
-                        },
+                        religious_restrictions: { religion: 'none', avoid_items: [], requires_halal: false, requires_kosher: false },
                         medical_restrictions: [],
                         lifestyle_preferences: [],
                         dislikes: [],
                     }
                 }));
 
+                if (isSupabase) {
+                  for (const u of newUsers) {
+                    await createProfile({
+                      user_id: u.user_id,
+                      name: u.name,
+                      rank: u.rank,
+                      role: 'crew',
+                      onboarding_completed: false,
+                      password_changed: false,
+                      dietary_profile: u.dietary_profile,
+                    });
+                  }
+                }
                 setCrewList(prev => {
                     const existingIds = new Set(prev.map(u => u.user_id));
                     const uniqueNewUsers = newUsers.filter(u => !existingIds.has(u.user_id));
@@ -458,9 +585,16 @@ const App: React.FC = () => {
     <Layout 
       user={user} 
       notifications={notifications}
-      onMarkRead={(id) => setNotifications(prev => prev.map(n => n.id === id ? {...n, read: true} : n))}
-      onClearNotifications={() => setNotifications([])}
+      onMarkRead={async (id) => {
+        if (isSupabase) await markNotificationRead(id);
+        setNotifications(prev => prev.map(n => n.id === id ? {...n, read: true} : n));
+      }}
+      onClearNotifications={async () => {
+        if (isSupabase && user) await clearNotificationsForUser(user.user_id);
+        setNotifications([]);
+      }}
       onLogout={() => {
+          if (isSupabase) apiSignOut();
           setUser(null);
           setViewState('app');
           setShowLogin(false);
