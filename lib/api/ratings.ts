@@ -1,8 +1,8 @@
-import { supabase } from '../supabase';
+import { getSupabase } from '../supabase';
 import type { Rating } from '../../types';
 
 export async function getRatingsForUser(userId: string): Promise<Rating[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('ratings')
     .select('*')
     .eq('user_id', userId)
@@ -22,7 +22,7 @@ export async function getRatingsForUser(userId: string): Promise<Rating[]> {
 export async function submitRating(
   rating: Omit<Rating, 'rating_id'> & { user_id: string }
 ): Promise<Rating | null> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('ratings')
     .insert({
       item_id: rating.item_id,

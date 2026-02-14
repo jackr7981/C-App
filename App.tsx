@@ -190,7 +190,7 @@ const App: React.FC = () => {
 
   const handlePasswordChange = async (newPassword: string) => {
       if (!user) return;
-      if (isSupabase) {
+      if (isSupabase && supabase) {
         const { error } = await supabase.auth.updateUser({ password: newPassword });
         if (error) {
           alert('Failed to update password: ' + error.message);

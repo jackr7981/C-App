@@ -1,8 +1,8 @@
-import { supabase } from '../supabase';
+import { getSupabase } from '../supabase';
 import type { MealAttendance } from '../../types';
 
 export async function getAttendance(): Promise<MealAttendance[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('meal_attendance')
     .select('*')
     .order('created_at', { ascending: false });
@@ -17,7 +17,7 @@ export async function getAttendance(): Promise<MealAttendance[]> {
 }
 
 export async function getAttendanceForUser(userId: string): Promise<MealAttendance[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('meal_attendance')
     .select('*')
     .eq('user_id', userId);
@@ -36,7 +36,7 @@ export async function setAttendance(
   userId: string,
   status: MealAttendance['status']
 ): Promise<MealAttendance | null> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('meal_attendance')
     .upsert(
       { menu_id: menuId, user_id: userId, status },
@@ -55,7 +55,7 @@ export async function setAttendance(
 }
 
 export async function removeAttendance(menuId: string, userId: string): Promise<boolean> {
-  const { error } = await supabase
+  const { error } = await getSupabase()
     .from('meal_attendance')
     .delete()
     .eq('menu_id', menuId)

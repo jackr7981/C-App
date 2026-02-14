@@ -1,10 +1,10 @@
-import { supabase } from '../supabase';
+import { getSupabase } from '../supabase';
 import type { WasteConfig, WasteLog } from '../../types';
 
 const WASTE_CONFIG_ID = 'default';
 
 export async function getWasteConfig(): Promise<WasteConfig | null> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('waste_config')
     .select('*')
     .eq('id', WASTE_CONFIG_ID)
@@ -18,7 +18,7 @@ export async function getWasteConfig(): Promise<WasteConfig | null> {
 }
 
 export async function updateWasteConfig(config: WasteConfig): Promise<WasteConfig | null> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('waste_config')
     .upsert(
       {
@@ -40,7 +40,7 @@ export async function updateWasteConfig(config: WasteConfig): Promise<WasteConfi
 }
 
 export async function getWasteLogs(): Promise<WasteLog[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('waste_logs')
     .select('*')
     .order('date', { ascending: false });
@@ -65,7 +65,7 @@ export async function logWaste(
   const total_weight_kg = containerCount * config.container_weight_kg;
   const total_volume_m3 = containerCount * config.container_volume_m3;
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('waste_logs')
     .insert({
       date,
