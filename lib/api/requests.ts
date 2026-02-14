@@ -1,8 +1,8 @@
-import { supabase } from '../supabase';
+import { getSupabase } from '../supabase';
 import type { Request } from '../../types';
 
 export async function getRequests(): Promise<Request[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('requests')
     .select('*')
     .order('created_at', { ascending: false });
@@ -20,7 +20,7 @@ export async function getRequests(): Promise<Request[]> {
 }
 
 export async function getRequestsForUser(userId: string): Promise<Request[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('requests')
     .select('*')
     .eq('user_id', userId)
@@ -39,7 +39,7 @@ export async function getRequestsForUser(userId: string): Promise<Request[]> {
 }
 
 export async function createRequest(request: Omit<Request, 'request_id' | 'timestamp'>): Promise<Request | null> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('requests')
     .insert({
       user_id: request.user_id,
@@ -67,7 +67,7 @@ export async function updateRequestStatus(
   requestId: string,
   status: 'approved' | 'denied'
 ): Promise<Request | null> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('requests')
     .update({ status })
     .eq('request_id', requestId)

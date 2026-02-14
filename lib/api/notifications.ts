@@ -1,8 +1,8 @@
-import { supabase } from '../supabase';
+import { getSupabase } from '../supabase';
 import type { Notification } from '../../types';
 
 export async function getNotificationsForUser(userId: string): Promise<Notification[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('notifications')
     .select('*')
     .eq('user_id', userId)
@@ -20,7 +20,7 @@ export async function getNotificationsForUser(userId: string): Promise<Notificat
 }
 
 export async function markNotificationRead(notificationId: string): Promise<boolean> {
-  const { error } = await supabase
+  const { error } = await getSupabase()
     .from('notifications')
     .update({ read: true })
     .eq('id', notificationId);
@@ -33,7 +33,7 @@ export async function addNotification(
   message: string,
   type: Notification['type'] = 'info'
 ): Promise<Notification | null> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('notifications')
     .insert({ user_id: userId, title, message, type, read: false })
     .select()
@@ -51,6 +51,6 @@ export async function addNotification(
 }
 
 export async function clearNotificationsForUser(userId: string): Promise<boolean> {
-  const { error } = await supabase.from('notifications').delete().eq('user_id', userId);
+  const { error } = await getSupabase().from('notifications').delete().eq('user_id', userId);
   return !error;
 }

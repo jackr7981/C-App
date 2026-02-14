@@ -1,4 +1,4 @@
-import { supabase } from '../supabase';
+import { getSupabase } from '../supabase';
 import type { User, DietaryProfile } from '../../types';
 import type { Database } from '../database.types';
 
@@ -17,7 +17,7 @@ export function profileFromRow(row: ProfileRow): User {
 }
 
 export async function getProfileByUserId(userId: string): Promise<User | null> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('profiles')
     .select('*')
     .eq('user_id', userId)
@@ -28,7 +28,7 @@ export async function getProfileByUserId(userId: string): Promise<User | null> {
 }
 
 export async function getProfileByAuthId(authId: string): Promise<User | null> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('profiles')
     .select('*')
     .eq('auth_id', authId)
@@ -39,7 +39,7 @@ export async function getProfileByAuthId(authId: string): Promise<User | null> {
 }
 
 export async function listCrew(): Promise<User[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('profiles')
     .select('*')
     .order('name');
@@ -60,7 +60,7 @@ export async function updateProfile(
   if (updates.dietary_profile !== undefined) row.dietary_profile = updates.dietary_profile;
   if (updates.password_changed !== undefined) row.password_changed = updates.password_changed;
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('profiles')
     .update(row)
     .eq('user_id', userId)
@@ -81,7 +81,7 @@ export async function createProfile(profile: {
   password_changed?: boolean;
   dietary_profile?: DietaryProfile;
 }): Promise<User | null> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('profiles')
     .insert({
       auth_id: profile.auth_id ?? null,

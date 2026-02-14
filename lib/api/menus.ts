@@ -1,4 +1,4 @@
-import { supabase } from '../supabase';
+import { getSupabase } from '../supabase';
 import type { Menu, MenuItem } from '../../types';
 import type { Database } from '../database.types';
 
@@ -17,14 +17,14 @@ function itemFromRow(row: MenuItemRow): MenuItem {
 
 /** Fetch all menus with their items and alternatives. Returns app-shaped Menu[]. */
 export async function getMenus(): Promise<Menu[]> {
-  const { data: menusData, error: menusError } = await supabase
+  const { data: menusData, error: menusError } = await getSupabase()
     .from('menus')
     .select('*')
     .order('date', { ascending: true });
 
   if (menusError || !menusData?.length) return [];
 
-  const { data: linksData } = await supabase
+  const { data: linksData } = await getSupabase()
     .from('menu_menu_items')
     .select('*');
 
@@ -40,7 +40,7 @@ export async function getMenus(): Promise<Menu[]> {
     }));
   }
 
-  const { data: itemsData } = await supabase
+  const { data: itemsData } = await getSupabase()
     .from('menu_items')
     .select('*')
     .in('item_id', Array.from(itemIds));
@@ -79,7 +79,7 @@ export async function getMenusByDate(date: string): Promise<Menu[]> {
 
 /** Insert a menu and its item links. Reuses existing menu_items by item_id or inserts new ones. */
 export async function upsertMenu(menu: Menu): Promise<Menu | null> {
-  const { error: menuError } = await supabase.from('menus').upsert({
+  const { error: menuError } = await getSupabase().from('menus').upsert({
     menu_id: menu.menu_id,
     date: menu.date,
     meal_type: menu.meal_type,
@@ -89,7 +89,7 @@ export async function upsertMenu(menu: Menu): Promise<Menu | null> {
 
   const allItems = [...menu.items, ...(menu.alternatives ?? [])];
   for (const item of allItems) {
-    await supabase.from('menu_items').upsert({
+    await getSupabase().from('menu_items').upsert({
       item_id: item.item_id,
       name: item.name,
       category: item.category,
@@ -99,11 +99,11 @@ export async function upsertMenu(menu: Menu): Promise<Menu | null> {
     });
   }
 
-  await supabase.from('menu_menu_items').delete().eq('menu_id', menu.menu_id);
+  await getSupabase().from('menu_menu_items').delete().eq('menu_id', menu.menu_id);
 
   let sortOrder = 0;
   for (const item of menu.items) {
-    await supabase.from('menu_menu_items').insert({
+    await getSupabase().from('menu_menu_items').insert({
       menu_id: menu.menu_id,
       item_id: item.item_id,
       is_alternative: false,
@@ -111,7 +111,7 @@ export async function upsertMenu(menu: Menu): Promise<Menu | null> {
     });
   }
   for (const item of menu.alternatives ?? []) {
-    await supabase.from('menu_menu_items').insert({
+    await getSupabase().from('menu_menu_items').insert({
       menu_id: menu.menu_id,
       item_id: item.item_id,
       is_alternative: true,
@@ -124,7 +124,7 @@ export async function upsertMenu(menu: Menu): Promise<Menu | null> {
 
 export async function insertMenuItemsIfMissing(items: MenuItem[]): Promise<void> {
   for (const item of items) {
-    await supabase.from('menu_items').upsert({
+    await getSupabase().from('menu_items').upsert({
       item_id: item.item_id,
       name: item.name,
       category: item.category,

@@ -1,4 +1,4 @@
-import { supabase } from '../supabase';
+import { getSupabase } from '../supabase';
 import type { User } from '../../types';
 import { profileFromRow } from './profiles';
 
@@ -18,7 +18,7 @@ export async function signInWithPassport(
   password: string
 ): Promise<{ user: User; error: string | null }> {
   const email = passportToEmail(passport);
-  const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+  const { data: authData, error: authError } = await getSupabase().auth.signInWithPassword({
     email,
     password,
   });
@@ -34,7 +34,7 @@ export async function signInWithPassport(
     return { user: null as unknown as User, error: 'Login failed.' };
   }
 
-  const { data: profile, error: profileError } = await supabase
+  const { data: profile, error: profileError } = await getSupabase()
     .from('profiles')
     .select('*')
     .eq('auth_id', authData.user.id)
@@ -56,7 +56,7 @@ export async function signInAsRole(
   roleUserId: string,
   password: string
 ): Promise<{ user: User; error: string | null }> {
-  const { data: profile, error: profileError } = await supabase
+  const { data: profile, error: profileError } = await getSupabase()
     .from('profiles')
     .select('*')
     .eq('user_id', roleUserId)
@@ -67,7 +67,7 @@ export async function signInAsRole(
   }
 
   const email = passportToEmail(roleUserId);
-  const { error: authError } = await supabase.auth.signInWithPassword({
+  const { error: authError } = await getSupabase().auth.signInWithPassword({
     email,
     password,
   });
@@ -82,16 +82,16 @@ export async function signInAsRole(
 
 /** Get current session */
 export async function getSession() {
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await getSupabase().auth.getSession();
   return session;
 }
 
 /** Get current user profile from session (after login) */
 export async function getCurrentUser(): Promise<User | null> {
-  const { data: { user: authUser } } = await supabase.auth.getUser();
+  const { data: { user: authUser } } = await getSupabase().auth.getUser();
   if (!authUser?.id) return null;
 
-  const { data: profile } = await supabase
+  const { data: profile } = await getSupabase()
     .from('profiles')
     .select('*')
     .eq('auth_id', authUser.id)
@@ -103,5 +103,5 @@ export async function getCurrentUser(): Promise<User | null> {
 
 /** Sign out */
 export async function signOut() {
-  await supabase.auth.signOut();
+  await getSupabase().auth.signOut();
 }
